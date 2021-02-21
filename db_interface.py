@@ -93,6 +93,14 @@ class Mysql_db():
         """数据库连接"""
         self.conn = pymysql.connect(**self._db_info)
         self.cur = self.conn.cursor()
+        databases = self.search("show databases")
+        databases = [x for row in databases for x in row]
+        if "book_rental" not in databases:
+            # print("there is not 'book_rental' database")
+            create_database()
+        else:
+            # print("there is database 'book_rent'")
+            pass
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
@@ -121,11 +129,11 @@ class Mysql_db():
               (ISBN, bname, price, inventory)
         self.cur.execute(sql)
 
-    def insert_customerinfo(self, uid, uname, card_class, rental_time, expire_date):
-        sql = "INSERT INTO customer_info(uid, uname, \
+    def insert_customerinfo(self, uid, uname, deposit, card_class, rental_time, expire_date):
+        sql = "INSERT INTO customer_info(uid, uname, deposit,\
                 card_class, rental_time, expire_date) \
-                VALUES('%s', '%s', '%s', '%s', '%s')" % \
-              (uid, uname, card_class, rental_time, expire_date)
+                VALUES('%s', '%s', '%s', '%s', '%s', '%s')" % \
+              (uid, uname, deposit, card_class, rental_time, expire_date)
         self.cur.execute(sql)
 
     def insert_orderinfo_start(self, uid, uname, bname, ISBN, start_time, end_time=None):
@@ -147,14 +155,14 @@ class Mysql_db():
        :return: None
        """
         table_name = self.table_dict[table_index]  # 先获得表名称
-        delete_sql = "Truncate Table %s" % (table_name)  # 删除表数据,但是保留表的结构;类似delete不加from;drop全部删除
+        delete_sql = "DELETE FROM %s" % (table_name)  # 删除表数据,但是保留表的结构;类似delete不加from;drop全部删除
         self.cur.execute(delete_sql)
         if table_index == 0:
             for row in data:
                 self.insert_bookitem(row[0], row[1], row[2], row[3])
         elif table_index == 1:
             for row in data:
-                self.insert_customerinfo(row[0], row[1], row[2], get_date_string(row[3]), row[4])
+                self.insert_customerinfo(row[0], row[1], row[2], row[3], get_date_string(row[4]), row[5])
         elif table_index == 2:
             for row in data:
                 self.insert_orderinfo_start(row[0], row[1], row[2], row[3], get_date_string(row[4]), row[5])
@@ -174,6 +182,8 @@ def get_date_string(datetime=None):  # 把datetime类型转化为字符串
     if datetime == None:
         today = datetime.date.today()  # type=datetime.date
         date = today.strftime(format_) # 转化为字符串
+    elif type(datetime) == str:
+        return datetime
     else:
         date = datetime.strftime(format_)
     return date

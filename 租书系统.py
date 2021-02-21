@@ -2,6 +2,8 @@ import wx
 import datetime
 import wx.adv
 import wx.grid as gridlib
+import wx.lib.embeddedimage
+from icon import img
 from db_interface import *
 from db_info import *
 import copy
@@ -17,8 +19,7 @@ class MyFrame(wx.Frame):
         self.SetSize(1100, 600)
 
         " 设置图标 "
-        ico = wx.Icon(icon)
-        self.SetIcon(ico)
+        self.SetIcon(wx.lib.embeddedimage.PyEmbeddedImage(icon).GetIcon())
 
         " 设置状态栏 "
         self.CreateStatusBar()
@@ -29,14 +30,14 @@ class MyFrame(wx.Frame):
         " 设置3个表notebook "
         self.nb = wx.Notebook(p)
         # data = [表1data, 表2data, 表3data]
-        tab1 = main_panel(self.nb, table_info[0][0], [table_info[0][1], table_info[1][1], table_info[2][1]],
+        tab1 = main_panel(self.nb, table_info[0][0], table_info[0][1],
                           table_index=0, show_flag=table_info[0][2])
 
-        tab2 = customer_panel(self.nb, table_info[1][0], [table_info[0][1], table_info[1][1], table_info[2][1]],
-                              table_index=1, show_flag = table_info[1][2])
+        tab2 = customer_panel(self.nb, table_info[1][0], table_info[1][1],
+                              table_index=1, show_flag = table_info[1][2], book_info=tab1.mygrid)
 
-        tab3 = order_panel(self.nb, table_info[2][0], [table_info[0][1], table_info[1][1], table_info[2][1]],
-                           table_index=2, show_flag = table_info[2][2])
+        tab3 = order_panel(self.nb, table_info[2][0], table_info[2][1],
+                           table_index=2, show_flag = table_info[2][2], book_info=tab1.mygrid, customer_info=tab2.mygrid)
 
 
         self.nb.AddPage(tab1, "书单信息")
@@ -178,6 +179,7 @@ class myGrid(wx.grid.Grid):
         self.table_label = table_label
         self.book_info = book_info
         self.customer_info = customer_info
+        self.show_index = []
 
         # 设置要show的数据
         self.show_flag = show_flag
@@ -189,9 +191,10 @@ class myGrid(wx.grid.Grid):
         # Grid
         self.CreateGrid(self.RowNum, self.ColNum)
         self.dict = {}  # show_title--index 对应起来(把所有的title对应起来)
-        for i in range(self.ColNum):
+        for i in range(len(self.table_label)):
             self.dict[self.table_label[i]] = i
         self.EnableEditing(True)
+        self.EnableDragCell(False)
         self.EnableGridLines(True)
         # self.SetColSize(0, 150)  # 格子大小自适应内容
 
@@ -216,37 +219,67 @@ class myGrid(wx.grid.Grid):
         if self.data == []:  # 还有没用户(即没有办卡记录时)
             return 1
         else:
-            return self.data[-1][0] + 1
+            return int(self.data[-1][0]) + 1
 
     def cell_changed(self, event):
         (row, column) = (event.GetRow(), event.GetCol())
         value = self.GetCellValue(row, column)
-        message = wx.MessageDialog(self, f"你确定要修改成[{str(value)}]吗?", '警告', wx.OK | wx.CANCEL | wx.ICON_WARNING)
-        result = message.ShowModal()
         if self.table_index > 0:   # 表2或者表3(因为顾客编号没有显示出来)
             column += 1
+        column_title = self.table_label[column]
+        message = wx.MessageDialog(self, f"你确定要将[{str(column_title)}]修改成[{str(value)}]吗?", '警告', wx.OK | wx.CANCEL | wx.ICON_WARNING)
+        result = message.ShowModal()
         if result == wx.ID_CANCEL:
-            self.DisplayGrid(self.data)
-            pass
+            self.DisplayGrid(self.data[self.show_index[row]])
         else:
-            self.data[row][column] = value
+            self.data_copy = copy.deepcopy(self.data)         # 每次data的修改都要备份到self.data_copy
+            if self.show_index:
+                self.data[self.show_index[row]][column] = value
+                row_data = self.data[self.show_index[row]]
+            else:
+                self.data[row][column] = value
+                row_data = self.data[row]
+            " 完成同步书名的操作(保证数据一致性) "
+            main_frame = app.GetTopWindow()
+
+            if self.table_index == 0 and column_title == "书名":
+                edit_isbn = row_data[0]
+                edit_bname = row_data[column]
+                tab3_grid = main_frame.grid[2]
+                tab3_data = tab3_grid.data
+                tab3_grid.data_copy = copy.deepcopy(tab3_data)
+                for row in tab3_data:
+                    if row[2] == edit_isbn:
+                        row[3] = edit_bname
+                tab3_grid.DisplayGrid()
+            elif self.table_index == 2 and column_title == "租书书名":
+                edit_isbn = row_data[2]                          # row_data 为  grid_data 没有去除uid
+                edit_bname = row_data[column]
+                tab1_grid = main_frame.grid[0]
+                tab1_data = tab1_grid.data
+                tab1_grid.data_copy = copy.deepcopy(tab1_data)  # 备份
+                for row in tab1_data:
+                    if row[0] == edit_isbn:
+                        row[1] = edit_bname
+                tab1_grid.DisplayGrid()
             event.Skip()
         message.Destroy()
 
     def editor_shown(self, event):
-        (row, column) = (event.GetRow(), event.GetCol())
-        value = self.GetCellValue(row, column)
-        message = wx.MessageDialog(self, f"你确定要修改[{str(value)}]吗?", '警告', wx.OK | wx.CANCEL | wx.ICON_WARNING)
-        result = message.ShowModal()
-        if result == wx.ID_CANCEL:
-            pass
-        else:
-            event.Skip()
-        message.Destroy()
+        pass
+        # (row, column) = (event.GetRow(), event.GetCol())
+        # value = self.GetCellValue(row, column)
+        # message = wx.MessageDialog(self, f"你确定要修改[{str(value)}]吗?", '警告', wx.OK | wx.CANCEL | wx.ICON_WARNING)
+        # result = message.ShowModal()
+        # if result == wx.ID_CANCEL:
+        #     pass
+        # else:
+        #     event.Skip()
+        # message.Destroy()
 
     def DisplayGrid(self, data=None):
         if data == None:
-            data = get_show_data(self.data, self.show_flag)
+            data = self.data
         data = get_show_data(data, self.show_flag)
         rownum = len(data)
         sub_num = rownum - self.GetNumberRows()
@@ -268,10 +301,12 @@ class myGrid(wx.grid.Grid):
         keyword_index = self.dict[keyword]
         new_data = []
         self.row = []
+        self.show_index = []
         for i, row in enumerate(self.data):
-            if str(row[keyword_index]) == value:
+            if str(row[keyword_index]) == str(value):
                 new_data.append(row)
                 self.row.append(i)
+                self.show_index.append(i)                   # 查找到的记录所在行的索引
         self.DisplayGrid(new_data)
 
 
@@ -283,7 +318,7 @@ class main_panel(wx.Panel):
         self.book_info = None
         self.customer_info = None
         """ 表格 控件"""
-        grid_data = data[table_index]             # data 包含3个表的数据
+        grid_data = data             # data 包含3个表的数据
         self.mygrid = myGrid(self, column_titles, grid_data, table_index, show_flag, self.book_info, self.customer_info)
 
         self.mygrid.DisplayGrid(grid_data)
@@ -304,19 +339,19 @@ class main_panel(wx.Panel):
 表2(顾客信息表: 办卡)
 """
 class customer_panel(main_panel):
-    def __init__(self, parent, column_titles, data, table_index, show_flag=None):
+    def __init__(self, parent, column_titles, data, table_index, show_flag, book_info):
         main_panel.__init__(self, parent, column_titles, data, table_index, show_flag=show_flag)
-        self.book_info = data[0]            # 顺序执行,上面的父类初始化后,才会改写self.book_info
-        self.customer_info = data[1]
+        # book_info 为表1的 mygrid 对象
+        self.book_info = book_info            # 顺序执行,上面的父类初始化后,才会改写self.book_info
 
 """
 表3(订单信息表: 借书, 还书)
 """
 class order_panel(main_panel):
-    def __init__(self, parent, column_titles, data, table_index, show_flag=None):
+    def __init__(self, parent, column_titles, data, table_index, show_flag, book_info, customer_info):
         main_panel.__init__(self, parent, column_titles, data, table_index, show_flag=show_flag)
-        self.book_info = data[0]
-        self.customer_info = data[1]
+        self.book_info = book_info
+        self.customer_info = customer_info
 
 """ 主界面左边 "查询" 框"""
 
@@ -338,12 +373,28 @@ class Query(wx.StaticBox):
     def AddWidgets(self, label_text):
         row_sizer = wx.BoxSizer(wx.HORIZONTAL)
         text_label = wx.StaticText(self.staticBox, label=label_text, size=(50, -1))
-        text_ctrl = wx.TextCtrl(self.staticBox)
+        if label_text == "办卡日期" or label_text == "借书日期" or label_text == "还书日期":
+            text_ctrl = \
+                wx.adv.GenericDatePickerCtrl(self.staticBox, style=wx.TAB_TRAVERSAL
+                                                         | wx.adv.DP_DROPDOWN
+                                                         | wx.adv.DP_SHOWCENTURY
+                                                         | wx.adv.DP_ALLOWNONE, name="日期", size=self.size)
+        elif label_text == "办卡类型":
+            text_ctrl = wx.Choice(self.staticBox, choices=["月卡", "季卡", "年卡"], name="办卡类型", size=self.size)
+        else:
+            text_ctrl = wx.TextCtrl(self.staticBox,style=wx.TE_PROCESS_ENTER, name=label_text)
+            text_ctrl.Bind(wx.EVT_TEXT_ENTER, self.press_button)
+            self.size = text_ctrl.GetSize()
         text_button = wx.Button(self.staticBox, label="查询", name=label_text, size=(5, -1))
         text_button_rollback = wx.Button(self.staticBox, label="返回", name=label_text)
 
         row_sizer.Add(text_label, 1, wx.ALL, 2)
-        row_sizer.Add(text_ctrl, 1, wx.ALL, 2)
+        if label_text == "办卡日期" or label_text == "借书日期" or label_text == "还书日期":
+            row_sizer.Add(text_ctrl, 1, wx.ALL, 2)
+        elif label_text == "办卡类型":
+            row_sizer.Add(text_ctrl, 1, wx.ALL, 2)
+        else:
+            row_sizer.Add(text_ctrl, 1, wx.ALL, 2)
         row_sizer.Add(text_button, 1, wx.ALL, 2)
         row_sizer.Add(text_button_rollback, 1, wx.ALL, 2)
         self.StaticBoxSizer.Add(row_sizer, 1, wx.ALL, 2)
@@ -357,7 +408,12 @@ class Query(wx.StaticBox):
         label = button.GetName()  # 获取标签名
         index = self.grid.dict[label]  # 标签的序号
         text_ctrl = self.FindWindowById(self.ID[index], self.staticBox)
-        value = text_ctrl.GetValue()
+        if label == "办卡类型":
+            value= text_ctrl.GetString(text_ctrl.GetCurrentSelection())   # 办卡类型
+        elif label == "借书日期" or label == "还书日期" or label == "办卡日期":
+            value = wxdate2pydate(text_ctrl.GetValue(), "%Y-%m-%d")    # 把wxdate --> pydate
+        else:
+            value = text_ctrl.GetValue()
         self.grid.search_show(keyword=label, value=value)
         self.grid.ForceRefresh()
         event.Skip()
@@ -369,7 +425,13 @@ class Query(wx.StaticBox):
         label = button.GetName()  # 获取标签名
         index = self.grid.dict[label]  # 标签的序号
         text_ctrl = self.FindWindowById(self.ID[index], self.staticBox)
-        text_ctrl.SetValue("")
+        if label == "办卡类型":
+            text_ctrl.SetStringSelection("")
+        elif label == "借书日期" or label == "还书日期" or label == "办卡日期":
+            text_ctrl.SetValue(pydate2wxdate(datetime.date.today()))
+        else:
+            text_ctrl.SetValue("")
+        self.grid.show_index = []
 
 
 """ 左下角的 管理 控件 """
@@ -432,6 +494,16 @@ class modify(wx.StaticBox):
         self.StaticBoxSizer.Add(row_sizer2, 1, wx.ALL | wx.EXPAND, 5)
         self.StaticBoxSizer.Add(row_sizer3, 1, wx.ALL | wx.EXPAND, 5)
 
+        if isinstance(self.parent, order_panel):
+            row_sizer4 = wx.BoxSizer(wx.HORIZONTAL)
+            text_button41 = wx.Button(self.staticBox, label="删除")
+            text_button41.Bind(wx.EVT_BUTTON, self.deleteItem)
+
+            row_sizer4.Add(text_button41, 1, wx.ALL | wx.EXPAND, 5)
+
+            self.StaticBoxSizer.Add(row_sizer4, 1, wx.ALL | wx.EXPAND, 5)
+
+
     def addItem(self, event):
         widget = event.GetEventObject()
         widget_label = widget.GetLabel()
@@ -447,35 +519,51 @@ class modify(wx.StaticBox):
         if self.grid.GetNumberRows() == 0:         # 没有选上任何一行
             return
         if label == "还书":
-            if index_value != None:
-                self.grid.data[index_value[0]][-1] = datetime.date.today()
-                self.grid.DisplayGrid(self.grid.data)
+            if index_value:
+                if self.grid.show_index:
+                    self.grid.data[self.grid.show_index[index_value[0]]][-1] = datetime.date.today()
+                    value = self.grid.data[self.grid.show_index[index_value[0]]]      # 所还的书在的行的数据
+                else:
+                    self.grid.data[index_value[0]][-1] = datetime.date.today()
+                    value = self.grid.data[index_value[0]]
+                if self.grid.show_index:
+                    self.grid.SetCellValue(index_value[0], len(self.grid.show_title)-1, str(datetime.date.today()))
+                else:
+                    self.grid.DisplayGrid(self.grid.data)
                 " 还书 库存+1 逻辑 "
-                value = self.grid.data[index_value[0]]
                 main_frame = app.GetTopWindow()
                 tab1 = main_frame.grid[0]
                 tab1.data_copy = copy.deepcopy(tab1.data)
                 for row in tab1.data:
                     if row[0] == value[2]:  # ISBN相同
-                        row[-1] += 1  # 库存+1
+                        row[-1] = row[-1] + 1  # 库存+1
                 tab1.DisplayGrid(tab1.data)
         else:
             if index_value != None:
-                data = self.grid.data
-                data = [i for num, i in enumerate(data) if num not in index_value]
+                if self.grid.show_index:
+                    self.grid.data_copy = copy.deepcopy(self.grid.data)
+                    del self.grid.data[self.grid.show_index[index_value[0]]]
+                    self.grid.DeleteRows(pos=self.grid.show_index[index_value[0]], numRows=1)
+                    return
                 self.grid.data_copy = copy.deepcopy(self.grid.data)
-                self.grid.data = data
+                self.grid.data = [i for num, i in enumerate(self.grid.data) if num not in index_value]
                 self.grid.DeleteRows(pos=0, numRows=len(index_value))
                 self.grid.DisplayGrid(self.grid.data)
 
     def modifyItem(self, event):
+        widget = event.GetEventObject()
+        label = widget.GetLabel()
         attribute = self.grid.show_title # 获得表格控件的属性列表
         try:
             index = self.grid.GetSelectedRows()[0]
         except:
             return
-        attribute_value = get_show_data(self.grid.data, self.grid.show_flag)[index]
-        dialog = EditDialog(attribute, attribute_value, title="修改条目", mygrid=self.grid, index=index)
+        self.show_index = self.grid.show_index
+        if self.show_index:
+            attribute_value = get_show_data(self.grid.data, self.grid.show_flag)[self.show_index[index]]
+        else:
+            attribute_value = get_show_data(self.grid.data, self.grid.show_flag)[index]
+        dialog = EditDialog(attribute, attribute_value, title="修改条目", mygrid=self.grid, index=index, label=label)
         dialog.ShowModal()
         dialog.Destroy()
 
@@ -527,9 +615,8 @@ class modify(wx.StaticBox):
 
     def commit(self, event):
         table_index = self.grid.table_index
-        self.grid.data_copy = copy.deepcopy(self.grid.data)
         try:
-            write_to_db([self.grid.data_copy], table_index=table_index)
+            write_to_db([self.grid.data], table_index=table_index)
             wx.MessageBox("恭喜你~已经成功提交到数据库", "恭喜", wx.OK)
         except:
             wx.MessageBox("提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
@@ -548,6 +635,8 @@ class EditDialog(wx.Dialog):
         self.value = value        # 属性的值
         self.index = index
         self.grid = mygrid
+        self.table_index = self.grid.table_index
+        self.show_index = mygrid.show_index
         self.label = label        # 弹出修改对话框所对应按钮的名称
         self.attribute = keyword  # 属性列表
         self.flag = False
@@ -555,6 +644,7 @@ class EditDialog(wx.Dialog):
             self.attribute.remove("还书日期")
             self.flag = True           # 特殊处理, 多加几个ISBN和书名框
         self.attribute_value = value if (value != None) else ["" for i in range(len(keyword))]
+
         # 对应属性的值
 
         self.ID = []
@@ -611,6 +701,14 @@ class EditDialog(wx.Dialog):
                         self.attribute_ctrl.Bind(wx.adv.EVT_DATE_CHANGED, self.OnDateChanged)
                 elif self.attribute[i] == "办卡类型":
                     self.attribute_ctrl = wx.Choice(self, choices=["月卡", "季卡", "年卡"], name="办卡类型")
+                    if not self.attribute[i]:
+                        pass
+                    elif self.attribute[i] == "月卡":
+                        self.attribute_ctrl.SetSelection(0)
+                    elif self.attribute[i] == "季卡":
+                        self.attribute_ctrl.SetSelection(1)
+                    else:
+                        self.attribute_ctrl.SetSelection(2)
                     self.attribute_ctrl.Bind(wx.EVT_CHOICE, self.OnDateChanged)
                 elif self.attribute[i] == "剩余天数":
                     self.attribute_ctrl = wx.TextCtrl(self, value=str(self.attribute_value[i]), name="剩余天数")
@@ -672,12 +770,12 @@ class EditDialog(wx.Dialog):
         text_uname = text_ctrl_uname.GetValue()
         widget = event.GetEventObject()
         if widget.GetName() == "顾客编号":
-            text_ctrl_uname.SetValue(str(get_uid_uname(self.grid.GetParent().customer_info, uid=text_uid, flag=0)))
+            text_ctrl_uname.SetValue(str(get_uid_uname(self.grid.GetParent().customer_info.data, uid=text_uid, flag=0)))
         else:
             if self.value == None:
                 text_ctrl_uid.SetValue(str(self.grid.get_next_uid()))
             else:
-                text_ctrl_uid.SetValue(str(get_uid_uname(self.grid.GetParent().customer_info, uname=text_uname, flag=1)))
+                text_ctrl_uid.SetValue(str(get_uid_uname(self.grid.GetParent().customer_info.data, uname=text_uname, flag=1)))
 
     def OnISBNEnter(self, event):
         def get_bname_from_isbn(data, isbn):
@@ -695,16 +793,24 @@ class EditDialog(wx.Dialog):
         text_ctrl_isbn03 = self.FindWindowByName(name="text03", parent=self)
         text_ctrl_bname13 = self.FindWindowByName(name="text13", parent=self)
 
+        " 修改order 对话框的 "
+        modify_ctrl_isbn = self.FindWindowByName(name="ISBN", parent=self)
+        modify_ctrl_bname = self.FindWindowByName(name="租书书名", parent=self)
+
         widget = event.GetEventObject()
         if widget.GetName() == "text01":
             text_isbn = text_ctrl_isbn01.GetValue()
-            text_ctrl_bname11.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info, text_isbn)))
+            text_ctrl_bname11.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info.data, text_isbn)))
         elif widget.GetName() == "text02":
             text_isbn = text_ctrl_isbn02.GetValue()
-            text_ctrl_bname12.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info, text_isbn)))
+            text_ctrl_bname12.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info.data, text_isbn)))
         elif widget.GetName() == "text03":
             text_isbn = text_ctrl_isbn03.GetValue()
-            text_ctrl_bname13.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info, text_isbn)))
+            text_ctrl_bname13.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info.data, text_isbn)))
+        elif widget.GetName() == "ISBN":
+            text_isbn = modify_ctrl_isbn.GetValue()
+            modify_ctrl_bname.SetValue(str(get_bname_from_isbn(self.grid.GetParent().book_info.data, text_isbn)))
+
 
     def add_widgets(self, label_text, text_ctrl):
         row_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -757,12 +863,12 @@ class EditDialog(wx.Dialog):
                 new_value.append(value1)
             if isbn02:
                 value2 = value.copy()
-                value2.insert(2, isbn01)
+                value2.insert(2, isbn02)
                 value2.insert(3, bname12)
                 new_value.append(value2)
             if isbn03:
                 value3 = value.copy()
-                value3.insert(2, isbn01)
+                value3.insert(2, isbn03)
                 value3.insert(3, bname13)
                 new_value.append(value3)
 
@@ -770,12 +876,49 @@ class EditDialog(wx.Dialog):
             main_frame = app.GetTopWindow()
             tab1 = main_frame.grid[0]
             tab1.data_copy = copy.deepcopy(tab1.data)
-            for row in self.grid.GetParent().book_info:
+            for row in self.grid.GetParent().book_info.data:
                 if row[0] in [value[2] for value in new_value]:           # ISBN相同
-                    row[-1] -= 1                 # 库存-1
+                    row[-1] = int(row[-1]) -1                 # 库存-1
             tab1.DisplayGrid(tab1.data)
             value = new_value                                             # 统一符号
-        cur_grid_data = self.grid.data
+        cur_grid_data = self.grid.data                                    # 做一个引用
+
+        if self.label == "修改":
+            row_data = value
+            if self.show_index:
+                origin_data = cur_grid_data[self.show_index[self.index]]
+            else:
+                origin_data = cur_grid_data[self.index]
+
+            " 完成同步书名的操作(保证数据一致性) "
+            main_frame = app.GetTopWindow()
+            if self.table_index == 0:
+                edit_isbn = row_data[0]
+                edit_bname = row_data[1]
+                if edit_bname == origin_data[1]:  # 没有修改书名:
+                    pass
+                else:
+                    tab3_grid = main_frame.grid[2]
+                    tab3_data = tab3_grid.data
+                    tab3_grid.data_copy = copy.deepcopy(tab3_data)
+                    for row in tab3_data:
+                        if row[2] == edit_isbn:
+                            row[3] = edit_bname
+                    tab3_grid.DisplayGrid()
+            elif self.table_index == 2:
+                edit_isbn = row_data[1]
+                edit_bname = row_data[2]
+                if edit_bname == origin_data[3]:
+                    pass
+                else:
+                    tab1_grid = main_frame.grid[0]
+                    tab1_data = tab1_grid.data
+                    tab1_grid.data_copy = copy.deepcopy(tab1_data)  # 备份
+                    for row in tab1_data:
+                        if row[0] == edit_isbn:
+                            row[1] = edit_bname
+                    tab1_grid.DisplayGrid()
+
         if self.value == None:  # 增加一列,不是修改
             self.grid.AppendRows(len(value))
             if len(value) > 3:
@@ -783,15 +926,29 @@ class EditDialog(wx.Dialog):
             else:
                 for row in value:
                     cur_grid_data.append(row) # 先插入
+            if self.show_index:
+                if not isinstance(value[0], (list, tuple)):
+                    value = [value]
+                cur_num = len(self.show_index)
+                for i in range(len(value)):
+                    for j in range(len(value[0])):
+                        self.grid.SetCellValue(i+cur_num, j, str(value[i][j]))
+                self.grid.ForceRefresh()
+                self.grid.AutoSize()
+                return
         else:
-            origin_value = cur_grid_data[self.index]
+            if self.show_index:
+                origin_value = cur_grid_data[self.show_index[self.index]]
+            else:
+                origin_value = cur_grid_data[self.index]
             p = 0
             for index, flag in enumerate(self.grid.show_flag):
                 if flag == 1:
-                    origin_value[index] = value[p]
+                    origin_value[index] = value[p]          # 修改origin_value 就已经修改了self.grid.data
                     p += 1
-            cur_grid_data[self.index] = origin_value
-        self.grid.data = cur_grid_data
+            if self.show_index:
+                self.grid.DisplayGrid(origin_value)         # 当搜索之后进行的修改, 只显示修改之后的数据
+                return
         self.grid.DisplayGrid(self.grid.data)
         self.Close()
 
@@ -923,7 +1080,7 @@ class Chose_tables(wx.Dialog):
             index_flag.append(1)
         if checkbox3.IsChecked():
             index_flag.append(2)
-        print("index_flag = %s" % index_flag)
+        # print("index_flag = %s" % index_flag)
         if filename != "C:":  # 选择了文件
             if self.GetTitle() == "选择导出的表":
                 # print("导出")
@@ -957,6 +1114,13 @@ class Chose_tables(wx.Dialog):
         for index in table_index:
             grid = self.grid[index]
             data_tmp = read_excel(filename, index)
+            if index == 1:
+                for row in data_tmp[1:]:
+                    row[4] = row[4].strftime("%Y-%m-%d")      # datetime.datetime(2021, 1, 24, 0, 0)
+            elif index == 2:
+                for row in data_tmp[1:]:
+                    row[-1] = row[-1].strftime("%Y-%m-%d")
+                    row[-1] = row[-2].strftime("%Y-%m-%d")
             grid.data = data_tmp[1:]                    # 1. 设置表格数据
             grid.data_copy = copy.deepcopy(grid.data)   # 2. 备份表格数据
             grid.DisplayGrid()                          # 3. 显示表格数据
@@ -1031,12 +1195,16 @@ def get_uid_uname(data, uid=None, uname=None, flag=0):
 def get_show_data(data, show_flag):
     """
     根据show_flag 从 data 中获得 show_data
-    设 data 的数据格式为: [(xx, xx, xx) , (xx, xx, xx) , (xx...)]
+    设 data 的数据格式为: [[xx, xx, xx] , [xx, xx, xx] , [xx...]]
     设 flag 的数据格式为: [1, 0 , 1]
     :param data:
     :param show_flag:
     :return:
     """
+    if not data:                                # 防止data 为空
+        return []
+    if not isinstance(data[0], (list, tuple)):  # 防止data不是上述数据结构
+        data = [data]
     return [get_show_data_helper(row, show_flag) for row in data]
 
 def get_show_data_helper(row, show_flag):
@@ -1065,15 +1233,19 @@ def get_data_from_db():
 
     """
     table_names = ["book_item", "customer_info", "order_info"]
-    show_flag = [[1,1,1,1], [0,1,1,1,1], [0,1,1,1,1,1]]
+    show_flag = [[1,1,1,1], [0,1,1,1,1,1], [0,1,1,1,1,1]]
 
     def get_tab_info(table_name):
         with Mysql_db(**db_connect) as db:  # db是__enter__方法的返回值, 即这个数据库对象
             data = db.search(f"select * from {table_name}")
             data = [list(row) for row in data]  # 把tuple转化为list
-            if table_name == "customer_info":
+            if table_name == "customer_info":   # 每次打开软件都从新计算剩余天数
                 for row in data:
-                    row[-1] = cal_num_date(row[2], row[3])
+                    row[-1] = cal_num_date(type_card=row[-3], start_date=row[-2])
+            if table_name == "order_info":      # 把还书日期为None的改为''
+                for row in data:
+                    if row[-1] == None:
+                        row[-1] = ''
             column_title = db.search(f"SHow full columns from {table_name}")  # 除了有列名外还有其它属性
             column_title = [column_title[i][-1] for i in range(len(column_title))]
             return [column_title, data, show_flag[table_names.index(table_name)]]
@@ -1107,11 +1279,13 @@ def cal_num_date(type_card, start_date):
         end_date_list[0] = start_date_list[0] + 1
 
     " 计算两者之差 "
-    return (datetime.date(*tuple(end_date_list)) - today).days
+    days = (datetime.date(*tuple(end_date_list)) - today).days
+    return 0 if days <= 0 else days
 
 
 if __name__ == '__main__':
     app = wx.App()
     tab_list = get_data_from_db()
-    frame = MyFrame("星月书店v1.0", "./paul.ico", table_info=tab_list)
+
+    frame = MyFrame("星月书店v1.0", icon=img, table_info=tab_list)
     app.MainLoop()
