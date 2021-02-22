@@ -4,6 +4,7 @@
 import pymysql
 import openpyxl  # 可以操作xlsx文件(2007以上)
 from db_info import *
+import os
 
 
 def read_excel(filename, table_index):
@@ -76,6 +77,7 @@ def write_excel(filename, sheet_index, data):
         except:
             pass
     # 4. 保存
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
     workbook.save(filename)
     return True
 
@@ -101,6 +103,7 @@ class Mysql_db():
         else:
             # print("there is database 'book_rent'")
             pass
+        self.cur.execute("use book_rental")
         return self
 
     def __exit__(self, exc_type, exc_value, exc_tb):
@@ -201,6 +204,9 @@ def get_table(table_index):
 
 def write_to_db(data, table_index):
     with Mysql_db(**db_connect) as db:  # db是__enter__方法的返回值, 即这个数据库对象
+    # con = pymysql.connect(**db_connect)
+    # db = con.cursor()
+    # db.execute("use book_rental")
         if type(table_index) == int:
             table_index = [table_index]
         for i, index in enumerate(table_index):

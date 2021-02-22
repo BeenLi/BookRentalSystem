@@ -13,6 +13,7 @@ class MyFrame(wx.Frame):
     def __init__(self, title, icon, table_info):
         super().__init__(parent=None, title=title)
         """ 当我们把panel加入我们的frame中时, 它是sole child;会自动扩展整个frame """
+        self.table_info = table_info
         p = wx.Panel(self)
 
         " 设置大小 "
@@ -61,18 +62,32 @@ class MyFrame(wx.Frame):
 
         self.timer.Start(1000*60*1)
 
+        " 每隔5小时 自动备份数据到 Excel "
+        self.timer2 = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self.auto_backup)
+        self.timer.Start(1000*60*60*5)
+
     def auto_commit(self, event):
         try:
             write_to_db([grid.data for grid in self.grid], table_index=[0,1,2])
-        except:
-            wx.MessageBox("提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
+        except Exception as e:
+            wx.MessageBox(f"{e}\n提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
+
+    def auto_backup(self, event):
+        try:
+            data = [[self.table_info[i][0]] + grid.data for i, grid in enumerate(self.grid)]
+            write_excel(f"D:\\星月书店数据备份文件夹\\{(datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S'))}.xlsx",
+                        sheet_index=[0,1,2], data=data)
+            wx.MessageBox("恭喜你~ 成功备份数据", "恭喜", wx.OK)
+        except Exception as e:
+            wx.MessageBox(f"{e}\n备份数据到Excel失败, 请核对是否有非法数据", "警告", wx.OK)
 
     def OneKeySave(self, event):
         try:
             write_to_db([grid.data for grid in self.grid], table_index=[0,1,2])
             wx.MessageBox("恭喜你~已经成功提交到数据库", "恭喜", wx.OK)
-        except:
-            wx.MessageBox("提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
+        except Exception as e:
+            wx.MessageBox(f"{e}\n提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
 
     def create_menu(self):
         menu_bar = wx.MenuBar()
@@ -91,6 +106,11 @@ class MyFrame(wx.Frame):
             wx.ID_ANY, "保存",
             "将数据一键保存到数据库中"
         )
+        OneKeyBackup = manage_menu.Append(
+            wx.ID_ANY, "备份",
+            "将数据备份到[D:\\星月书店备份文件夹]目录下"
+        )
+
         menu_bar.Append(manage_menu, "管理")
         self.Bind(
             event=wx.EVT_MENU,
@@ -106,6 +126,11 @@ class MyFrame(wx.Frame):
             event=wx.EVT_MENU,
             handler=self.OneKeySave,
             source=OneKeySave
+        )
+        self.Bind(
+            event=wx.EVT_MENU,
+            handler=self.auto_backup,
+            source=OneKeyBackup
         )
 
         """ 2. 帮助菜单"""
@@ -136,7 +161,9 @@ class MyFrame(wx.Frame):
     """菜单栏响应逻辑"""
 
     def press_intro_info(self, event):
-        spec = ["使用说明", "1. 可以使用Excel导入导出", "2. 可以增加办卡记录", "3. 可以删除记录"]
+        spec = ["使用说明", "1. 备份: 将所有数据保存到excel文件中(用当前时间命名文件名)", "2. 提交: 将所有数据上传到数据库中(用户不可见)",
+                "3. 导入导出: 可以将其中一个表或多个表导入到软件中,或者从软件导出到特定Excel文件中",
+                "4. 自动上传周期: 1分钟;自动备份周期:5小时"]
         dlg = IntroDialog(*spec, parent=None, title="使用说明")
         dlg.ShowModal()
         dlg.Destroy()
@@ -543,7 +570,7 @@ class modify(wx.StaticBox):
                 if self.grid.show_index:
                     self.grid.data_copy = copy.deepcopy(self.grid.data)
                     del self.grid.data[self.grid.show_index[index_value[0]]]
-                    self.grid.DeleteRows(pos=self.grid.show_index[index_value[0]], numRows=1)
+                    self.grid.DeleteRows(pos=index_value[0], numRows=1)
                     return
                 self.grid.data_copy = copy.deepcopy(self.grid.data)
                 self.grid.data = [i for num, i in enumerate(self.grid.data) if num not in index_value]
@@ -712,6 +739,15 @@ class EditDialog(wx.Dialog):
                     self.attribute_ctrl.Bind(wx.EVT_CHOICE, self.OnDateChanged)
                 elif self.attribute[i] == "剩余天数":
                     self.attribute_ctrl = wx.TextCtrl(self, value=str(self.attribute_value[i]), name="剩余天数")
+                    try:
+                        card_type = self.FindWindowByName("办卡类型", self)
+                        choice = card_type.GetString(card_type.GetCurrentSelection())
+                        start_date_ctrl = self.FindWindowByName("日期", self)
+                        start_date = start_date_ctrl.GetValue()
+                        if choice and start_date:
+                            self.attribute_ctrl.SetValue(str(cal_num_date(choice, start_date)))
+                    except Exception as e:
+                        print("自动生成剩余天数错误:", e)
                 elif self.attribute[i] == "顾客编号":
                     self.attribute_ctrl = wx.TextCtrl(self, value=str(self.attribute_value[i]), name="顾客编号",
                                                       style=wx.TE_PROCESS_ENTER)
@@ -920,23 +956,21 @@ class EditDialog(wx.Dialog):
                     tab1_grid.DisplayGrid()
 
         if self.value == None:  # 增加一列,不是修改
+            if not isinstance(value[0], (list, tuple)):
+                value = [value]
             self.grid.AppendRows(len(value))
-            if len(value) > 3:
-                cur_grid_data.append(value)
-            else:
-                for row in value:
-                    cur_grid_data.append(row) # 先插入
+            for row in value:
+                cur_grid_data.append(row)  # 先插入
             if self.show_index:
-                if not isinstance(value[0], (list, tuple)):
-                    value = [value]
                 cur_num = len(self.show_index)
                 for i in range(len(value)):
                     for j in range(len(value[0])):
                         self.grid.SetCellValue(i+cur_num, j, str(value[i][j]))
                 self.grid.ForceRefresh()
                 self.grid.AutoSize()
+                self.Destroy()
                 return
-        else:
+        else:                                               # 修改的情况
             if self.show_index:
                 origin_value = cur_grid_data[self.show_index[self.index]]
             else:
@@ -947,10 +981,13 @@ class EditDialog(wx.Dialog):
                     origin_value[index] = value[p]          # 修改origin_value 就已经修改了self.grid.data
                     p += 1
             if self.show_index:
-                self.grid.DisplayGrid(origin_value)         # 当搜索之后进行的修改, 只显示修改之后的数据
+                for j in range(len(value)):
+                    self.grid.SetCellValue(self.index, j, str(value[j]))  # 只重新更新修改的那一行
+                self.Destroy()
                 return
-        self.grid.DisplayGrid(self.grid.data)
-        self.Close()
+        self.grid.DisplayGrid(self.grid.data)               # 常规修改:没有查询 不是删除一行
+        self.Destroy()
+        return
 
 
 " 菜单栏对话框 "
@@ -964,11 +1001,11 @@ class AboutDialog(wx.Dialog):
         headline = "星月书店管理系统"
         headline_text = wx.StaticText(self, label=headline, size=(-1, 50))
         self.main_sizer.Add(headline_text, 0, wx.CENTER | wx.Top, 100)
-        self.add_staticText("版本号", "1.0")
+        self.add_staticText("版本号", "2.1")
         self.add_staticText("制作人", "万力")
-        self.add_staticText("完成段", "2021-01")
+        self.add_staticText("完成段", "2021-02")
         self.SetSizer(self.main_sizer)
-        self.SetSizerAndFit(self.main_sizer)
+        # self.SetSizerAndFit(self.main_sizer)
 
     def add_staticText(self, label_key, label_value):
         row_sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -1116,11 +1153,17 @@ class Chose_tables(wx.Dialog):
             data_tmp = read_excel(filename, index)
             if index == 1:
                 for row in data_tmp[1:]:
-                    row[4] = row[4].strftime("%Y-%m-%d")      # datetime.datetime(2021, 1, 24, 0, 0)
+                    if isinstance(row, (datetime.date, datetime.datetime)):
+                        row[4] = row[4].strftime("%Y-%m-%d")      # datetime.datetime(2021, 1, 24, 0, 0)
             elif index == 2:
                 for row in data_tmp[1:]:
-                    row[-1] = row[-1].strftime("%Y-%m-%d")
-                    row[-1] = row[-2].strftime("%Y-%m-%d")
+                    if row[-1]: # 防止 还书日期 为空时 出现错误
+                        if isinstance(row[-1], (datetime.date, datetime.datetime)):
+                            row[-1] = row[-1].strftime("%Y-%m-%d")
+                    else:
+                        row[-1] = ""
+                    if isinstance(row[-2], (datetime.date, datetime.datetime)):
+                        row[-2] = row[-2].strftime("%Y-%m-%d")
             grid.data = data_tmp[1:]                    # 1. 设置表格数据
             grid.data_copy = copy.deepcopy(grid.data)   # 2. 备份表格数据
             grid.DisplayGrid()                          # 3. 显示表格数据
@@ -1128,8 +1171,11 @@ class Chose_tables(wx.Dialog):
         try:
             write_to_db(data, table_index)   # 写到数据库
             wx.MessageBox("恭喜你~, 导入成功", "恭喜", wx.OK)
-        except:
+            self.Destroy()   # 销毁
+        except Exception as e:
+            print(e)
             wx.MessageBox("导入错误, 请检察导入的文件是否合法", "警告", wx.OK)
+            self.Destroy()
 
     def export_file(self, table_index, filename):
         """
@@ -1146,19 +1192,19 @@ class Chose_tables(wx.Dialog):
         try:
             write_excel(filename=filename, sheet_index=table_index, data=data)
             wx.MessageBox(f"写入:{filename}成功", "恭喜你", wx.OK)
+            self.Destroy()
         except:
             wx.MessageBox("导出错误, 请检察是否有非法的数据", "警告", wx.OK)
+            self.Destroy()
 
     def OnSaveAs(self, event):
-
-        with wx.FileDialog(self, "保存Excel文件", wildcard="Excel 工作簿(*.xlsx)|*.xlsx",
-                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as fileDialog:
-            if fileDialog.ShowModal() == wx.ID_CANCEL:
-                return  # the user changed their mind
-
-            # save the current contents in the file
-            pathname = fileDialog.GetPath()
-            self.filename.SetValue(pathname)
+        filename = f"星月书店数据备份-{(datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S'))}.xlsx"
+        with wx.DirDialog(self, "选择一个目录--保存Excel文件",
+                        style=wx.DD_DEFAULT_STYLE|wx.DD_NEW_DIR_BUTTON) \
+                as DirDialog:
+            if DirDialog.ShowModal() == wx.ID_OK:
+                pathname = DirDialog.GetPath() + "\\" + filename
+                self.filename.SetValue(pathname)
 
 def pydate2wxdate(date):
     " 把datetime -> wx.datetime"
@@ -1233,7 +1279,7 @@ def get_data_from_db():
 
     """
     table_names = ["book_item", "customer_info", "order_info"]
-    show_flag = [[1,1,1,1], [0,1,1,1,1,1], [0,1,1,1,1,1]]
+    show_flag = [[1,1,1,1], [1,1,1,1,1,1], [0,1,1,1,1,1]]
 
     def get_tab_info(table_name):
         with Mysql_db(**db_connect) as db:  # db是__enter__方法的返回值, 即这个数据库对象
@@ -1287,5 +1333,5 @@ if __name__ == '__main__':
     app = wx.App()
     tab_list = get_data_from_db()
 
-    frame = MyFrame("星月书店v1.0", icon=img, table_info=tab_list)
+    frame = MyFrame("星月书店v2.1", icon=img, table_info=tab_list)
     app.MainLoop()
