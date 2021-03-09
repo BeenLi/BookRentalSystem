@@ -57,21 +57,33 @@ class MyFrame(wx.Frame):
         self.Show()
 
         " 每隔一分钟 自动保存到数据库 "
-        self.timer = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.auto_commit)
+        self.timer = wx.Timer(self, wx.ID_ANY)
+        # print("timer1 id is: ", self.timer.GetId())
+        self.timer.Start(1000*30*1)
+        self.Bind(wx.EVT_TIMER, self.on_timer, self.timer)
 
-        self.timer.Start(1000*60*1)
+        " 每隔1小时 自动备份数据到 Excel "
+        self.timer2 = wx.Timer(self, wx.ID_ANY)
+        # print("timer2 id is: ", self.timer2.GetId())
+        self.timer2.Start(1000*60*60*1)
 
-        " 每隔5小时 自动备份数据到 Excel "
-        self.timer2 = wx.Timer(self)
-        self.Bind(wx.EVT_TIMER, self.auto_backup)
-        self.timer.Start(1000*60*60*5)
+        self.Bind(wx.EVT_TIMER, self.on_timer, self.timer2)
 
-    def auto_commit(self, event):
-        try:
-            write_to_db([grid.data for grid in self.grid], table_index=[0,1,2])
-        except Exception as e:
-            wx.MessageBox(f"{e}\n提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
+    def on_timer(self, event):
+        if event.GetTimer() == self.timer:  # 每一分钟auto_commit
+            try:
+                write_to_db([grid.data for grid in self.grid], table_index=[0,1,2])
+                # wx.MessageBox("恭喜你~已经成功提交到数据库", "恭喜", wx.OK)
+            except Exception as e:
+                wx.MessageBox(f"{e}\n提交到数据库失败, 请核对是否有非法数据", "警告", wx.OK)
+        elif event.GetTimer() == self.timer2: # 每1小时 auto_save_excel
+            try:
+                data = [[self.table_info[i][0]] + grid.data for i, grid in enumerate(self.grid)]
+                write_excel(f"D:\\星月书店数据备份文件夹\\{(datetime.datetime.today().strftime('%Y-%m-%d_%H-%M-%S'))}.xlsx",
+                            sheet_index=[0, 1, 2], data=data)
+                # wx.MessageBox("恭喜你~ 成功备份数据", "恭喜", wx.OK)
+            except Exception as e:
+                wx.MessageBox(f"{e}\n备份数据到Excel失败, 请核对是否有非法数据", "警告", wx.OK)
 
     def auto_backup(self, event):
         try:
@@ -103,11 +115,11 @@ class MyFrame(wx.Frame):
             "将数据导出到Excel"  # help_string
         )
         OneKeySave = manage_menu.Append(
-            wx.ID_ANY, "保存",
+            wx.ID_ANY, "保存到数据库",
             "将数据一键保存到数据库中"
         )
         OneKeyBackup = manage_menu.Append(
-            wx.ID_ANY, "备份",
+            wx.ID_ANY, "备份到Excel",
             "将数据备份到[D:\\星月书店备份文件夹]目录下"
         )
 
@@ -1153,7 +1165,7 @@ class Chose_tables(wx.Dialog):
             data_tmp = read_excel(filename, index)
             if index == 1:
                 for row in data_tmp[1:]:
-                    if isinstance(row, (datetime.date, datetime.datetime)):
+                    if isinstance(row[4], (datetime.date, datetime.datetime)):
                         row[4] = row[4].strftime("%Y-%m-%d")      # datetime.datetime(2021, 1, 24, 0, 0)
             elif index == 2:
                 for row in data_tmp[1:]:

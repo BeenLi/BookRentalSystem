@@ -4,7 +4,7 @@ block_cipher = None
 
 
 a = Analysis(['租书系统.py'],
-             pathex=['C:\\Users\\wanli\\Desktop\\项目文档\\3_租书系统\\BookRentalSystem'],
+             pathex=['C:\\Users\\wanli\\Desktop\\My_Projects\\3_租书系统\\BookRentalSystem'],
              binaries=[],
              datas=[],
              hiddenimports=[],
@@ -30,4 +30,4 @@ exe = EXE(pyz,
           upx=True,
           upx_exclude=[],
           runtime_tmpdir=None,
-          console=False , icon='C:\\Users\\wanli\\Desktop\\项目文档\\3_租书系统\\BookRentalSystem\\reading-book.ico')
+          console=False , icon='C:\\Users\\wanli\\Desktop\\My_Projects\\3_租书系统\\BookRentalSystem\\reading-book.ico')
