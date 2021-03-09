@@ -22,31 +22,30 @@
 
 ### 一、书单信息(表1)
 
-![mark](https://image.beenli.cn/img/20210221/sMOMb8OXeDry.png?imageslim)
+![表1](https://image.beenli.cn/img/20210221/sMOMb8OXeDry.png?imageslim)
 
 ### 二、顾客信息(表2)
 
-![mark](https://image.beenli.cn/img/20210221/IAAuSXWpJNsA.png?imageslim)
+![表2](https://image.beenli.cn/img/20210221/IAAuSXWpJNsA.png?imageslim)
 
 ### 三、租书信息(表3)
 
-![mark](https://image.beenli.cn/img/20210221/8GspxpGVDNyP.png?imageslim)
+![表3](https://image.beenli.cn/img/20210221/8GspxpGVDNyP.png?imageslim)
 
 ## 4. 项目特色
 
 - 每隔`1分钟`自动提交数据到数据库(保存), 每隔`5小时`自动备份到[D:\\星月书店备份数据文件夹\\当前日期.xlsx] (备份)
-
 - 程序打开时自动去数据库提取数据(也仅访问一次)，然后保存到一个变量中；此后所有操作只对该变量操作，不会立即反应到数据库中。只有当用户点击`提交`或者`保存`才会提交到数据库。
-
 - 程序在每次数据修改之前，设有一次`备份`；所以允许用户进行一次`返回`操作(如果进行两次修改，那么第二次修改会覆盖第一次备份，也即只能返回一步)
-
 - 考虑到有可能提交数据库失败，数据库访问速度等问题，本程序放弃使用`外键`，取而代之由程序内部逻辑保证数据一致性。
-
 - 可以选择导入导出一个表或多个表(`软件`和`Excel文件`交互)
+- 当有顾客借书时，配合扫码机，只需要扫描ISBN，系统自动匹配数据库中的书名等信息，添加一条记录。
+- 当有顾客还书时，也只需要扫码查找对应记录点击还书即可，日期由软件自动补全。
+- 顾客办卡时，只需要输入对应顾客姓名，软件自动生成一个唯一的id。
 
 ## 5. 运行条件
 
-1. [下载软件]()
+1. [下载软件](https://github.com/BeenLi/BookRentalSystem/releases/download/v2.2/rental_book.exe)
 2. 创建MySQL账户(账户名和密码 见 `db_info.py`)
 3. 将`book_rental.sql`脚本放到跟软件`同一目录`下
 4. 运行软件(如果不存在数据库, 会自动创建)
